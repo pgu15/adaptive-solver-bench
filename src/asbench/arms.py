@@ -41,32 +41,70 @@ def _jacobi(A):
     return spla.LinearOperator(A.shape, matvec=lambda x: inv * x)
 
 
-def _ilu(drop_tol: float, fill_factor: float):
+def _symmetric_gauss_seidel(sweeps: int):
+    """Symmetric Gauss-Seidel as a preconditioner.
+
+    The symmetric (forward-then-backward) sweep matters: a one-directional
+    sweep gives a NONSYMMETRIC operator, and CG requires its preconditioner to
+    be symmetric positive definite. See the note on ILU below.
+    """
+
     def build(A):
-        try:
-            ilu = spla.spilu(
-                A.tocsc(), drop_tol=drop_tol, fill_factor=fill_factor
-            )
-        except RuntimeError:
-            return None  # singular pivot; treat as unpreconditioned
-        return spla.LinearOperator(A.shape, matvec=ilu.solve)
+        from pyamg.relaxation.relaxation import gauss_seidel
+
+        A = A.tocsr()
+
+        def matvec(x):
+            x = np.asarray(x, dtype=A.dtype).ravel()
+            y = np.zeros_like(x)
+            gauss_seidel(A, y, x, iterations=sweeps, sweep="symmetric")
+            return y
+
+        return spla.LinearOperator(A.shape, matvec=matvec, dtype=A.dtype)
 
     return build
 
 
-def _amg(A):
-    import pyamg
+def _amg(max_coarse: int, theta: float, sweeps: int = 1):
+    """Smoothed-aggregation AMG. `theta` is the strength-of-connection
+    threshold: 0.0 treats all couplings as strong (good for isotropic
+    operators), higher values only coarsen along strong couplings (better when
+    the operator is anisotropic)."""
 
-    ml = pyamg.smoothed_aggregation_solver(A.tocsr())
-    return ml.aspreconditioner()
+    def build(A):
+        import pyamg
+
+        ml = pyamg.smoothed_aggregation_solver(
+            A.tocsr(),
+            max_coarse=max_coarse,
+            strength=("symmetric", {"theta": theta}),
+            presmoother=("gauss_seidel", {"sweep": "symmetric", "iterations": sweeps}),
+            postsmoother=("gauss_seidel", {"sweep": "symmetric", "iterations": sweeps}),
+        )
+        return ml.aspreconditioner()
+
+    return build
+
+
+# NOTE ON ILU
+# -----------
+# Earlier versions of this benchmark included scipy `spilu` arms. That was a
+# correctness bug, not a tuning problem: an incomplete LU factorisation of an
+# SPD matrix is not itself symmetric, and CG's convergence theory requires an
+# SPD preconditioner. Those arms hit the iteration cap on essentially every
+# problem, which looked like "ILU is a bad preconditioner here" but was really
+# CG breaking down on an invalid operator. They inflated the arm cost spread by
+# ~1000x and drove the original negative result. Incomplete Cholesky would be
+# the correct SPD analogue; scipy does not ship one, so the symmetric
+# Gauss-Seidel arm above stands in.
 
 
 DEFAULT_ARMS: list[Arm] = [
     Arm("none", _none),
     Arm("jacobi", _jacobi),
-    Arm("ilu-loose", _ilu(drop_tol=1e-2, fill_factor=3.0)),
-    Arm("ilu-tight", _ilu(drop_tol=1e-4, fill_factor=10.0)),
-    Arm("amg", _amg),
+    Arm("sym-gauss-seidel", _symmetric_gauss_seidel(1)),
+    Arm("amg", _amg(max_coarse=50, theta=0.0)),
+    Arm("amg-aniso", _amg(max_coarse=50, theta=0.25)),
 ]
 
 

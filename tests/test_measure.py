@@ -21,3 +21,15 @@ def test_nonconvergence_is_penalised():
                   np.array([[10, 20]]), np.array([[True, False]]))
     c = t.cost("seconds")
     assert c[0, 1] > c[0, 0]
+
+
+def test_all_default_arms_are_spd_compatible():
+    """Every default arm must let CG converge on a well-conditioned problem.
+
+    This is a regression test for the ILU bug: a nonsymmetric preconditioner
+    makes CG stall at the iteration cap, which is easy to misread as the
+    preconditioner simply being ineffective.
+    """
+    seq = synthetic_sequence(n=16, steps=1, seed=0)
+    table = build_cost_table(seq, DEFAULT_ARMS)
+    assert table.converged.all(), dict(zip(table.arm_names, table.converged[0]))
