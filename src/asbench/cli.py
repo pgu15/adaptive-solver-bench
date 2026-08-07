@@ -19,7 +19,7 @@ from .policies import (
     oracle_per_step,
     replay,
 )
-from .problems import synthetic_sequence
+from .problems import regime_change_sequence, synthetic_sequence
 
 FIELDS = [
     "policy",
@@ -42,7 +42,10 @@ def _policies(n_arms: int, arm_names: list[str], seed: int):
 
 
 def cmd_run(args) -> int:
-    seq = synthetic_sequence(n=args.grid, steps=args.steps, seed=args.seed)
+    if args.problem == "regime-change":
+        seq = regime_change_sequence(n=args.grid, seed=args.seed)
+    else:
+        seq = synthetic_sequence(n=args.grid, steps=args.steps, seed=args.seed)
     print(f"measuring {len(seq)} steps x {len(DEFAULT_ARMS)} arms on {seq.name}")
     table = build_cost_table(seq, DEFAULT_ARMS, repeats=args.repeats,
                              verbose=args.verbose)
@@ -91,7 +94,10 @@ def main(argv=None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     r = sub.add_parser("run", help="measure a sequence and evaluate policies")
-    r.add_argument("--grid", type=int, default=32)
+    r.add_argument(
+        "--problem", choices=["regime-change", "drift"], default="regime-change"
+    )
+    r.add_argument("--grid", type=int, default=64)
     r.add_argument("--steps", type=int, default=24)
     r.add_argument("--seed", type=int, default=0)
     r.add_argument("--repeats", type=int, default=1)
