@@ -169,3 +169,57 @@ def suitesparse_sequence(
         b /= np.linalg.norm(b)
         systems.append(System(A=A.tocsr(), b=b, step=t))
     return ProblemSequence(name=f"{group}/{matrix}", systems=systems)
+
+
+def regime_change_sequence(
+    name: str = "regime-change",
+    n: int = 64,
+    blocks: tuple[tuple[int, float], ...] = (
+        (20, 0.5),
+        (4, 18.0),
+        (20, 0.5),
+        (4, 18.0),
+    ),
+    seed: int = 0,
+) -> ProblemSequence:
+    """A sequence that switches abruptly between two coefficient regimes.
+
+    `blocks` is a list of (n_steps, log_contrast) pairs. The coefficient field
+    keeps its spatial shape throughout; only its dynamic range changes, so the
+    switch is a change in *conditioning* rather than a change of problem.
+
+    Why abrupt blocks rather than smooth drift: the original
+    `synthetic_sequence` drifts monotonically, which means the best arm changes
+    at most once over the whole run. A policy can win there by getting lucky and
+    never re-evaluating. Alternating blocks force genuine re-adaptation and are
+    what separate a discounted policy from a stationary one.
+
+    Block lengths are deliberately unequal. The easy regime is cheap per step,
+    so a run with equal block lengths has its total cost dominated by the hard
+    regime, and the adaptive headroom -- the gap between a per-step oracle and
+    the best single arm -- collapses regardless of how good the policy is. The
+    default weights the cheap regime more heavily so that the headroom is
+    actually measurable. This is a real property of the problem class, not a
+    quirk of the harness; see README.
+    """
+    rng = np.random.default_rng(seed)
+    N = n * n
+
+    field = rng.normal(size=(n, n))
+    for _ in range(4):
+        field = 0.5 * field + 0.125 * (
+            np.roll(field, 1, 0) + np.roll(field, -1, 0)
+            + np.roll(field, 1, 1) + np.roll(field, -1, 1)
+        )
+    field /= np.abs(field).max()
+
+    systems: list[System] = []
+    step = 0
+    for n_steps, contrast in blocks:
+        A = _diffusion_2d(np.exp(contrast * field))
+        for _ in range(n_steps):
+            b = rng.normal(size=N)
+            b /= np.linalg.norm(b)
+            systems.append(System(A=A, b=b, step=step))
+            step += 1
+    return ProblemSequence(name=f"{name}-n{n}", systems=systems)

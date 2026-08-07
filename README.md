@@ -13,22 +13,34 @@ This repo measures whether that framing pays off, against honest baselines.
 
 ## Result so far
 
-On a 1600-DOF variable-coefficient diffusion sequence whose coefficient contrast
-grows over 20 timesteps (`asbench run --grid 40 --steps 20`):
+On a 4096-DOF sequence alternating between two coefficient regimes over 48 
+timesteps (asbench run --problem regime-change):
 
 | policy | total seconds | % of per-step oracle | vs. best fixed arm |
 |---|---|---|---|
-| oracle-per-step | 0.097 | 100% | 1.11x |
-| best-fixed-in-hindsight (jacobi) | 0.108 | 90% | 1.00x |
-| eps-greedy | 1.347 | 7% | 0.08x |
-| d-ucb | 1.401 | 7% | 0.08x |
-| ucb1 | 1.407 | 7% | 0.08x |
+| oracle-per-step | 0.470 | 100% | 1.11x |
+| best-fixed-in-hindsight (jacobi) | 0.532 | 88% | 1.00x |
+| eps-greedy | 1.113 | 42% | 0.08x |
+| d-ucb | 1.094 | 43% | 0.08x |
+| ucb1 | 1.000 | 47% | 0.08x |
 
-**The bandits lose badly, and that is the interesting part.** The arm spread is
-roughly three orders of magnitude — a single pull of `ilu-loose` costs more than
-the entire oracle run — so the exploration cost swamps any adaptive gain. The
-per-step oracle only beats the best fixed arm by 11%, meaning there is barely
-any adaptive headroom to win on this problem in the first place.
+The regime crossover is real — cheap arms win by ~2x when the problem is 
+well-conditioned, AMG by ~5x when it is not — but total adaptive headroom is 
+only 1.13x. The hard regime costs several times more per step and dominates the 
+total, and that is exactly where the oracle and the best fixed arm agree. AMG 
+is a strong single choice; no policy can beat it by much.
+
+These are wall-clock numbers and the headroom is hardware-sensitive: the same 
+sequence measured on a different machine gave 1.45x. The ordering is stable; 
+the margin is not.
+
+**Correction**
+An earlier version included scipy spilu preconditioner arms. Those were invalid,
+an incomplete LU factorization of an SPD matrix is not symmetric, and CG 
+requires an SPD preconditioner. They stalled at the iteration cap on every 
+problem, inflating the arm cost spread by roughly three orders of magnitude 
+and driving the original conclusion that exploration cost was ruinous. 
+That conclusion did not survive the fix.
 
 Open questions this raises, in the order I'm working on them:
 
