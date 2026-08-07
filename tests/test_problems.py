@@ -16,3 +16,23 @@ def test_conditioning_drifts():
     d0 = seq.systems[0].A.diagonal()
     d5 = seq.systems[5].A.diagonal()
     assert np.std(d5) > np.std(d0)
+
+
+def test_regime_change_switches_operator():
+    from asbench.problems import regime_change_sequence
+
+    seq = regime_change_sequence(n=12, blocks=((3, 0.5), (2, 12.0), (3, 0.5)))
+    assert len(seq) == 8
+    easy = seq.systems[0].A.diagonal()
+    hard = seq.systems[3].A.diagonal()
+    back = seq.systems[5].A.diagonal()
+    # the hard block is far more heterogeneous, and the sequence returns
+    assert np.std(hard) > 10 * np.std(easy)
+    assert np.allclose(back, easy)
+
+
+def test_regime_change_rhs_varies_within_a_block():
+    from asbench.problems import regime_change_sequence
+
+    seq = regime_change_sequence(n=10, blocks=((3, 1.0),))
+    assert not np.allclose(seq.systems[0].b, seq.systems[1].b)
